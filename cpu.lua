@@ -42,8 +42,6 @@ function Cpu:initialize()
             self.screen_buffer[y][x] = 0
         end
     end
-
-    return cpu
 end
 
 function Cpu:print_state()
