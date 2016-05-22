@@ -10,10 +10,13 @@ local MEMORY_BYTE_SIZE          = 0x1000
 local NUMBER_OF_REGISTERS       = 16
 local ADDRESS_REGISTER_BIT_SIZE = 16
 local STACK_SIZE                = 16
-local SCREEN_WIDTH              = 32
-local SCREEN_HEIGHT             = 64
+local SCREEN_WIDTH              = 64
+local SCREEN_HEIGHT             = 32
+local KEYPAD_SIZE               = 16
 
 function Cpu:initialize()
+    -- Set the random seed
+    math.randomseed(os.time())
 
     -- RAM
     self.memory = {}
@@ -27,6 +30,30 @@ function Cpu:initialize()
         self.registers[i] = 0
     end
 
+    -- Font set. This is stored in the first section of memory. Each row represents a character
+    self.fontset = {
+	    0xF0, 0x90, 0x90, 0x90, 0xF0, -- 0
+	    0x20, 0x60, 0x20, 0x20, 0x70, -- 1
+	    0xF0, 0x10, 0xF0, 0x80, 0xF0, -- 2
+	    0xF0, 0x10, 0xF0, 0x10, 0xF0, -- 3
+	    0x90, 0x90, 0xF0, 0x10, 0x10, -- 4
+	    0xF0, 0x80, 0xF0, 0x10, 0xF0, -- 5
+	    0xF0, 0x80, 0xF0, 0x90, 0xF0, -- 6
+	    0xF0, 0x10, 0x20, 0x40, 0x40, -- 7
+	    0xF0, 0x90, 0xF0, 0x90, 0xF0, -- 8
+	    0xF0, 0x90, 0xF0, 0x10, 0xF0, -- 9
+	    0xF0, 0x90, 0xF0, 0x90, 0x90, -- A
+	    0xE0, 0x90, 0xE0, 0x90, 0xE0, -- B
+	    0xF0, 0x80, 0x80, 0x80, 0xF0, -- C
+	    0xE0, 0x90, 0x90, 0x90, 0xE0, -- D
+	    0xF0, 0x80, 0xF0, 0x80, 0xF0, -- E
+	    0xF0, 0x80, 0xF0, 0x80, 0x80  -- F
+    }
+
+    for i = 1,#self.fontset do
+        self.memory[i] = self.fontset[i]
+    end
+
     self.address_register = 0
 
     -- Instruction start at 0x200, 0 to 0x1ff are for interpreter (not used)
@@ -36,20 +63,39 @@ function Cpu:initialize()
 
     -- The screen buffer. The display for the Chip 8 is 64x32 (HxW)
     self.screen_buffer = {}
-    for y = 1,SCREEN_HEIGHT do
-        self.screen_buffer[y] = {}
-        for x = 1,SCREEN_WIDTH do
-            self.screen_buffer[y][x] = 0
-        end
+    for i = 1,SCREEN_WIDTH*SCREEN_HEIGHT do
+        self.screen_buffer[i] = 0
     end
+
+    -- The key pad
+    -- A 16 bit hexadecimal keypad
+    --
+    --    1 2 3 c
+    --    4 5 6 d
+    --    7 8 9 e
+    --    a 0 b f
+    --
+    -- The keypad table will store 1 when the key is pressed and 0 when it is released.
+    self.keypad = {}
+    for i = 1,KEYPAD_SIZE do
+        self.keypad[i] = 0
+    end
+
+    -- Delay timer
+    self.delay_timer = 0
+
+    -- Sound timer
+    self.sound_timer = 0
 end
 
 function Cpu:print_state()
     for i,register in ipairs(self.registers) do
         print("--- V" .. bit.tohex(i-1, 1) .. ": 0x" .. bit.tohex(register, 4))
     end
-    print("--- I: 0x" .. bit.tohex(self.address_register, 4))
+    print("--- I:  0x" .. bit.tohex(self.address_register, 4))
     print("--- PC: 0x" .. bit.tohex(self.program_counter, 3))
+    print("--- DT: 0x" .. bit.tohex(self.delay_timer, 4))
+    print("--- ST: 0x" .. bit.tohex(self.sound_timer, 4))
     print("--- Stack: ")
     for i = 1,#self.stack do
         print("---        0x" .. bit.tohex(self.stack[i], 4))
@@ -58,10 +104,11 @@ end
 
 function Cpu:run()
     while true do
-        local opcode = self:read_instruction(self.program_counter)
+        local opcode = self:read_instruction()
         print("0x" .. bit.tohex(self.program_counter-2, 3) .. " opcode: 0x" .. bit.tohex(opcode, 4))
         self:run_instruction(opcode)
-        self:print_state()
+        --self:print_state()
+        --self:dump_screen()
     end
 end
 
@@ -117,10 +164,57 @@ function Cpu:get_memory(addr)
     return self.memory[addr+1]
 end
 
+function Cpu:key_pressed(key)
+    self.keypad[key+1] = 1
+end
+
+function Cpu:key_released(key)
+    self.keypad[key+1] = 0
+end
+
+function Cpu:key_state(key)
+    return self.keypad[key+1]
+end
+
+function Cpu:get_key()
+    for keycode=0,0xf do
+        if self:key_state(keycode) == 1 then
+            return keycode
+        end
+    end
+    return -1    
+end
+
 function Cpu:draw_to_screen(register_x, register_y, n)
     local pos_x, pos_y = self:get_register(register_x), self:get_register(register_y)
-    local sprite = self:get_memory(self.address_register)
-    -- TODO: proper implementation
+  
+    self:set_register(0xf, 0)
+
+    -- y index each line of the sprite. The sprite is stored as n bytes in memory starting at the address
+    -- stored in I (the address register).
+    for y = 0, n-1 do
+        local byte = self:get_memory(self.address_register + y)
+
+        -- x index the pixels in this y-slice of the sprite. All slices are 1 byte long.
+        -- x_offset_bits stores how many bits we need to rshift the byte to get the value of the current
+        -- pixel.
+        local x_offset_bits = 7
+        for x = 0, 7 do
+            local pixel = bit.band(bit.rshift(byte, x_offset_bits), 0x1)
+            local screen_x = (pos_x + x) % SCREEN_WIDTH
+            local screen_y = (pos_y + y) % SCREEN_HEIGHT
+            if pixel == 1 then
+                local current_pixel = self.screen_buffer[screen_x + screen_y*SCREEN_WIDTH + 1]
+                if current_pixel == 1 then
+                    -- Collision detected
+                    -- Set VF to 1
+                    self:set_register(0xf, 1)
+                end
+                self.screen_buffer[screen_x + screen_y*SCREEN_WIDTH + 1] = bit.bxor(current_pixel, pixel)
+            end
+            x_offset_bits = x_offset_bits - 1
+        end
+    end
 end
 
 function Cpu:run_instruction(opcode)
@@ -135,11 +229,8 @@ function Cpu:run_instruction(opcode)
     if leading_bits == 0 then
         if opcode == 0x00e0 then
             -- Clear the screen
-            for y = 1,SCREEN_HEIGHT do
-                self.screen_buffer[y] = {}
-                for x = 1,SCREEN_WIDTH do
-                    self.screen_buffer[y][x] = 0
-                end
+            for i = 1,SCREEN_WIDTH*SCREEN_HEIGHT do
+                self.screen_buffer[i] = 0
             end
         elseif opcode == 0x00ee then
             -- Return from subroutine
@@ -180,40 +271,56 @@ function Cpu:run_instruction(opcode)
         local last_bits = bit.band(opcode, 0x000f)
         if last_bits == 0 then
             -- Set VX to the value of VY
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            self:set_register(register_x, self:get_register(register_y))
         elseif last_bits == 1 then
             -- Set VX to VX or VY
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            local value_x = self:get_register(register_x)
+            local value_y = self:get_register(register_y)
+            self:set_register(register_x, bit.bor(value_x, value_y))
         elseif last_bits == 2 then
             -- Set VX to VX and VY
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            local value_x = self:get_register(register_x)
+            local value_y = self:get_register(register_y)
+            self:set_register(register_x, bit.band(value_x, value_y))
         elseif last_bits == 3 then
             -- Set VX to VX xor VY
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            local value_x = self:get_register(register_x)
+            local value_y = self:get_register(register_y)
+            self:set_register(register_x, bit.bxor(value_x, value_y))
         elseif last_bits == 4 then
-            -- Add VX to VY. VF is set to 1 if there's a carry, 0 otherwise
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            -- Add VY to VX. VF is set to 1 if there's a carry, 0 otherwise
+            local value_x = self:get_register(register_x)
+            local value_y = self:get_register(register_y)
+            local value = value_x + value_y
+            self:set_register(0xf, 0)
+            if bit.rshift(value, 8) > 0 then
+                self:set_register(0xf, 1)
+            end
+            self:set_register(register_x, bit.band(value, 0xff))
         elseif last_bits == 5 then
             -- Subtract VY from VX. VF is set to 0 if there's a borrow, 1 otherwise
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            local value_x = self:get_register(register_x)
+            local value_y = self:get_register(register_y)
+            local value = value_x - value_y
+            self:set_register(0xf, 1)
+            if value < 0 then
+                self:set_register(0xf, 0)
+            end
+            self:set_register(register_x, value)
         elseif last_bits == 6 then
             -- Shifts VX right by 1. VF is set to the least significant bit of VX before the shift.
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            local value = self:get_register(register_x)
+            self:set_register(0xf, bit.band(value, 0x1))
+            self:set_register(register_x, bit.rshift(value, 1))
         elseif last_bits == 7 then
             -- Set VX to VY minus VX. VY is set to 0 if there's a borrow, 1 otherwise
             -- TODO: proper implementation
             error("Not implemented: 0x" .. bit.tohex(opcode, 4))
         elseif last_bits == 0xe then
             -- Shifts VX left by 1. VF is set to the most significant bit before the shift.
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            local value = self:get_register(register_x)
+            self:set_register(0xf, bit.band(value, 0x80))
+            self:set_register(register_x, bit.lshift(value, 1))
         end
     elseif leading_bits == 9 then
         -- Skip the next instruction if VX neq VY
@@ -228,8 +335,9 @@ function Cpu:run_instruction(opcode)
         error("Not implemented: 0x" .. bit.tohex(opcode, 4))
     elseif leading_bits == 0xc then
         -- Set VX to the bitwise and between a random number and NN
-        -- TODO: proper implementation
-        error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+        local rnd = math.random(0x0, 0xff)
+        local value = bit.band(self:get_register(register_x, rnd))
+        self:set_register(register_x, value)
     elseif leading_bits == 0xd then
         -- Sprites stored in memory at location in index register (I), 8bits wide. Wraps around the screen.
         -- If when drawn, clears a pixel, register VF is set to 1 otherwise it is zero. All drawing is XOR 
@@ -237,45 +345,48 @@ function Cpu:run_instruction(opcode)
         -- the number of 8bit rows that need to be drawn. If N is greater than 1, second line continues at 
         -- position VX, VY+1, and so on.
         -- TODO: proper implementation (?)
-        self:draw_to_screen(register_x, register_y, n)
+        self:draw_to_screen(register_x, register_y, value_n)
     elseif leading_bits == 0xe then
         local last_byte = bit.band(opcode, 0x00ff)
         if last_byte == 0x9e then
             -- Skips the next instruction if the key stored in VX is pressed
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            if self:key_state(self:get_register(register_x)) == 1 then
+                self.program_counter = self.program_counter + 2
+            end
         elseif last_byte == 0xa1 then
             -- Skips the next instruction if the key stored in VX is not pressed
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            if self:key_state(self:get_register(register_x)) ~= 1 then
+                self.program_counter = self.program_counter + 2
+            end
         end 
     elseif leading_bits == 0xf then
         local last_byte = bit.band(opcode, 0x00ff)
         if last_byte == 0x07 then
             -- Set VX to the value of the delay timer
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            self:set_register(register_x, self.delay_timer)
         elseif last_byte == 0x0a then
             -- A key press is awaited and then stored in VX
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            local key = self:get_key()
+            if key == -1 then
+                self.program_counter = self.program_counter - 2
+            else
+                self:set_register(register_x, key)
+            end
         elseif last_byte == 0x15 then
             -- Set the delay timer to VX
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            self.delay_timer = self:get_register(register_x)
         elseif last_byte == 0x18 then
             -- Set the sound timer to VX
             -- TODO: proper implementation
             error("Not implemented: 0x" .. bit.tohex(opcode, 4))
         elseif last_byte == 0x1e then
             -- Add VX to I
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            self.address_register = self.address_register + self:get_register(register_x)
         elseif last_byte == 0x29 then
             -- Sets I to the location of the sprite for the character in VX. Characters 0-F (in hexadecimal) 
             -- are represented by a 4x5 font.
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            local value = self:get_register(register_x)
+            self.address_register = value * 0x5
         elseif last_byte == 33 then
             -- Stores the binary-coded decimal representation of VX, with the most significant of three 
             -- digits at the address in I, the middle digit at I plus 1, and the least significant digit at I
@@ -303,6 +414,19 @@ function Cpu:dump_memory()
         io.write(bit.tohex(self.memory[i], 2))
     end
     io.write("\n")
+end
+
+function Cpu:dump_screen()
+    for y = 1,SCREEN_HEIGHT do
+        for x = 1,SCREEN_WIDTH do
+            if self.screen_buffer[x + (y-1)*SCREEN_WIDTH] == 1 then
+                io.write("@")
+            else
+                io.write(" ")
+            end
+        end
+        io.write("\n")
+    end
 end
 
 return Cpu
