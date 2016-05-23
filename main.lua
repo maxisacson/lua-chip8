@@ -5,14 +5,64 @@ function love.load()
     cpu:read_rom("roms/INVADERS")
 end
 
+function love.run()
+ 
+	if love.math then
+		love.math.setRandomSeed(os.time())
+	end
+ 
+	if love.load then love.load(arg) end
+ 
+	-- We don't want the first frame's dt to include time taken by love.load.
+	if love.timer then love.timer.step() end
+ 
+	local dt = 0
+ 
+	-- Main loop time.
+	while true do
+		-- Process events.
+		if love.event then
+			love.event.pump()
+			for name, a,b,c,d,e,f in love.event.poll() do
+				if name == "quit" then
+					if not love.quit or not love.quit() then
+						return a
+					end
+				end
+				love.handlers[name](a,b,c,d,e,f)
+			end
+		end
+ 
+		-- Update dt, as we'll be passing it to update
+		if love.timer then
+			love.timer.step()
+			dt = love.timer.getDelta()
+		end
+ 
+		-- Call update and draw
+		if love.update then love.update(dt) end -- will pass 0 if love.timer is disabled
+ 
+		if love.graphics and love.graphics.isActive() then
+			love.graphics.clear(love.graphics.getBackgroundColor())
+			love.graphics.origin()
+			if love.draw then love.draw() end
+			love.graphics.present()
+		end
+
+        --if love.timer then love.timer.sleep(0.001) end
+	end
+ 
+end
+
 function love.update(dt)
     local opcode = cpu:read_instruction()
     --print("0x" .. bit.tohex(cpu.program_counter-2, 3) .. " opcode: 0x" .. bit.tohex(opcode, 4))
     cpu:run_instruction(opcode)
     --cpu:print_state()
     --cpu:dump_screen()
+    --cpu:print_keys()
 
-
+    print("fps", 1/dt)
     -- The cpu and delay timers should decrease by 1 at a rate of 6Hz
     -- TODO: ensure proper clock rate.
     if cpu.delay_timer > 0 then
@@ -44,7 +94,7 @@ function love.draw()
 end
 
 function love.keypressed(key, scancode, isrepeat)
-    print("--- Keypressed: ", key, scancode)
+    --print("--- Keypressed: ", key, scancode)
     if key == '0' then
         cpu:key_pressed(0x0)
     elseif key == '1' then
@@ -81,7 +131,7 @@ function love.keypressed(key, scancode, isrepeat)
 end
 
 function love.keyreleased(key, scancode, isrepeat)
-    print("--- Keyreleased: ", key, scancode)
+    --print("--- Keyreleased: ", key, scancode)
     if key == '0' then
         cpu:key_released(0x0)
     elseif key == '1' then

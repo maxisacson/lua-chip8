@@ -185,6 +185,13 @@ function Cpu:get_key()
     return -1    
 end
 
+function Cpu:print_keys()
+    for i,key in ipairs(self.keypad) do
+        io.write(key)
+    end
+    io.write("\n")
+end
+
 function Cpu:draw_to_screen(register_x, register_y, n)
     local pos_x, pos_y = self:get_register(register_x), self:get_register(register_y)
   
