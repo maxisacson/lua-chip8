@@ -384,8 +384,7 @@ function Cpu:run_instruction(opcode)
             self.delay_timer = self:get_register(register_x)
         elseif last_byte == 0x18 then
             -- Set the sound timer to VX
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            self.sound_timer = self:get_register(register_x)
         elseif last_byte == 0x1e then
             -- Add VX to I
             self.address_register = self.address_register + self:get_register(register_x)
