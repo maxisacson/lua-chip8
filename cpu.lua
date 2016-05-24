@@ -145,6 +145,12 @@ function Cpu:set_register(register, value)
     self.registers[index] = value
 end
 
+function Cpu:get_register(register)
+    -- Returns the value stored in register
+    -- lua starts indexing at 1
+    return self.registers[register+1]
+end
+
 function Cpu:add_to_register(register, value)
     -- Add value to register
     -- lua starts indexing at 1
@@ -152,11 +158,10 @@ function Cpu:add_to_register(register, value)
     self.registers[index] = self.registers[index] + value
 end
 
-function Cpu:get_register(register)
-    -- Returns the value stored in register
+function Cpu:set_memory(addr, value)
+    -- Stores value in memory at addr
     -- lua starts indexing at 1
-    return self.registers[register+1]
-end
+    self.memory[addr+1] = value
 
 function Cpu:get_memory(addr)
     -- Returns the value stored in memory at addr
@@ -402,12 +407,14 @@ function Cpu:run_instruction(opcode)
             error("Not implemented: 0x" .. bit.tohex(opcode, 4))
         elseif last_byte == 55 then
             -- Stores V0 to VX (including VX) in memory starting at address I.
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            for i=0, register_x do
+                self:set_memory(self.address_register + i, self:get_register(i))
+            end
         elseif last_byte == 65 then
             -- Fills V0 to VX (including VX) with values from memory starting at address I.
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            for i=0, register_x do
+                self:set_register(i, self:get_memory(self.address_register + i))
+            end
         end
     else
         -- Unrecoqnized instruction
