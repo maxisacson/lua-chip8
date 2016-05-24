@@ -1,8 +1,9 @@
 cpu = require('cpu'):new()
 bit = require('bit')
 
-function love.load()
-    cpu:read_rom("roms/INVADERS")
+function love.load(arg)
+    -- Load the rom specified by the first command line argument after the program name
+    cpu:read_rom(arg[2])
 end
 
 local dt2 = 0
