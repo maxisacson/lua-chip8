@@ -165,6 +165,7 @@ function Cpu:set_memory(addr, value)
     -- Stores value in memory at addr
     -- lua starts indexing at 1
     self.memory[addr+1] = value
+end
 
 function Cpu:get_memory(addr)
     -- Returns the value stored in memory at addr
@@ -406,8 +407,13 @@ function Cpu:run_instruction(opcode)
             -- digits at the address in I, the middle digit at I plus 1, and the least significant digit at I
             -- plus 2. (In other words, take the decimal representation of VX, place the hundreds digit in
             -- memory at location in I, the tens digit at location I+1, and the ones digit at location I+2.)
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            local value = self:get_register(register_x)
+            local hundreds = math.floor(value / 100)
+            local tens     = math.floor(value/10 % 10)
+            local ones     = math.floor(value % 10)
+            self:set_memory(self.address_register + 0, hundreds)
+            self:set_memory(self.address_register + 1, tens)
+            self:set_memory(self.address_register + 2, ones)
         elseif last_byte == 55 then
             -- Stores V0 to VX (including VX) in memory starting at address I.
             for i=0, register_x do
