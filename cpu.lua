@@ -32,33 +32,36 @@ function Cpu:initialize()
 
     -- Font set. This is stored in the first section of memory. Each row represents a character
     self.fontset = {
-	    0xF0, 0x90, 0x90, 0x90, 0xF0, -- 0
-	    0x20, 0x60, 0x20, 0x20, 0x70, -- 1
-	    0xF0, 0x10, 0xF0, 0x80, 0xF0, -- 2
-	    0xF0, 0x10, 0xF0, 0x10, 0xF0, -- 3
-	    0x90, 0x90, 0xF0, 0x10, 0x10, -- 4
-	    0xF0, 0x80, 0xF0, 0x10, 0xF0, -- 5
-	    0xF0, 0x80, 0xF0, 0x90, 0xF0, -- 6
-	    0xF0, 0x10, 0x20, 0x40, 0x40, -- 7
-	    0xF0, 0x90, 0xF0, 0x90, 0xF0, -- 8
-	    0xF0, 0x90, 0xF0, 0x10, 0xF0, -- 9
-	    0xF0, 0x90, 0xF0, 0x90, 0x90, -- A
-	    0xE0, 0x90, 0xE0, 0x90, 0xE0, -- B
-	    0xF0, 0x80, 0x80, 0x80, 0xF0, -- C
-	    0xE0, 0x90, 0x90, 0x90, 0xE0, -- D
-	    0xF0, 0x80, 0xF0, 0x80, 0xF0, -- E
-	    0xF0, 0x80, 0xF0, 0x80, 0x80  -- F
+        0xF0, 0x90, 0x90, 0x90, 0xF0, -- 0
+        0x20, 0x60, 0x20, 0x20, 0x70, -- 1
+        0xF0, 0x10, 0xF0, 0x80, 0xF0, -- 2
+        0xF0, 0x10, 0xF0, 0x10, 0xF0, -- 3
+        0x90, 0x90, 0xF0, 0x10, 0x10, -- 4
+        0xF0, 0x80, 0xF0, 0x10, 0xF0, -- 5
+        0xF0, 0x80, 0xF0, 0x90, 0xF0, -- 6
+        0xF0, 0x10, 0x20, 0x40, 0x40, -- 7
+        0xF0, 0x90, 0xF0, 0x90, 0xF0, -- 8
+        0xF0, 0x90, 0xF0, 0x10, 0xF0, -- 9
+        0xF0, 0x90, 0xF0, 0x90, 0x90, -- A
+        0xE0, 0x90, 0xE0, 0x90, 0xE0, -- B
+        0xF0, 0x80, 0x80, 0x80, 0xF0, -- C
+        0xE0, 0x90, 0x90, 0x90, 0xE0, -- D
+        0xF0, 0x80, 0xF0, 0x80, 0xF0, -- E
+        0xF0, 0x80, 0xF0, 0x80, 0x80  -- F
     }
 
+    -- Store the font set in the first part of memory
     for i = 1,#self.fontset do
         self.memory[i] = self.fontset[i]
     end
 
+    -- Initialize the address register (index register) to 0
     self.address_register = 0
 
     -- Instruction start at 0x200, 0 to 0x1ff are for interpreter (not used)
     self.program_counter = 0x200
 
+    -- The stack is initialized as empty
     self.stack = {}
 
     -- The screen buffer. The display for the Chip 8 is 64x32 (HxW)
@@ -135,7 +138,7 @@ function Cpu:read_instruction()
     local second_byte = self.memory[index+1]
     local opcode = bit.bor(bit.lshift(first_byte, 8), second_byte)
     self.program_counter = self.program_counter + 2
-    return opcode 
+    return opcode
 end
 
 function Cpu:set_register(register, value)
@@ -187,7 +190,7 @@ function Cpu:get_key()
             return keycode
         end
     end
-    return -1    
+    return -1
 end
 
 function Cpu:print_keys()
@@ -199,7 +202,7 @@ end
 
 function Cpu:draw_to_screen(register_x, register_y, n)
     local pos_x, pos_y = self:get_register(register_x), self:get_register(register_y)
-  
+
     self:set_register(0xf, 0)
 
     -- y index each line of the sprite. The sprite is stored as n bytes in memory starting at the address
@@ -352,9 +355,9 @@ function Cpu:run_instruction(opcode)
         self:set_register(register_x, value)
     elseif leading_bits == 0xd then
         -- Sprites stored in memory at location in index register (I), 8bits wide. Wraps around the screen.
-        -- If when drawn, clears a pixel, register VF is set to 1 otherwise it is zero. All drawing is XOR 
-        -- drawing (i.e. it toggles the screen pixels). Sprites are drawn starting at position VX, VY. N is 
-        -- the number of 8bit rows that need to be drawn. If N is greater than 1, second line continues at 
+        -- If when drawn, clears a pixel, register VF is set to 1 otherwise it is zero. All drawing is XOR
+        -- drawing (i.e. it toggles the screen pixels). Sprites are drawn starting at position VX, VY. N is
+        -- the number of 8bit rows that need to be drawn. If N is greater than 1, second line continues at
         -- position VX, VY+1, and so on.
         -- TODO: proper implementation (?)
         self:draw_to_screen(register_x, register_y, value_n)
@@ -370,7 +373,7 @@ function Cpu:run_instruction(opcode)
             if self:key_state(self:get_register(register_x)) ~= 1 then
                 self.program_counter = self.program_counter + 2
             end
-        end 
+        end
     elseif leading_bits == 0xf then
         local last_byte = bit.band(opcode, 0x00ff)
         if last_byte == 0x07 then
@@ -394,14 +397,14 @@ function Cpu:run_instruction(opcode)
             -- Add VX to I
             self.address_register = self.address_register + self:get_register(register_x)
         elseif last_byte == 0x29 then
-            -- Sets I to the location of the sprite for the character in VX. Characters 0-F (in hexadecimal) 
+            -- Sets I to the location of the sprite for the character in VX. Characters 0-F (in hexadecimal)
             -- are represented by a 4x5 font.
             local value = self:get_register(register_x)
             self.address_register = value * 0x5
         elseif last_byte == 33 then
-            -- Stores the binary-coded decimal representation of VX, with the most significant of three 
+            -- Stores the binary-coded decimal representation of VX, with the most significant of three
             -- digits at the address in I, the middle digit at I plus 1, and the least significant digit at I
-            -- plus 2. (In other words, take the decimal representation of VX, place the hundreds digit in 
+            -- plus 2. (In other words, take the decimal representation of VX, place the hundreds digit in
             -- memory at location in I, the tens digit at location I+1, and the ones digit at location I+2.)
             -- TODO: proper implementation
             error("Not implemented: 0x" .. bit.tohex(opcode, 4))
