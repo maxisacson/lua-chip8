@@ -330,8 +330,14 @@ function Cpu:run_instruction(opcode)
             self:set_register(register_x, bit.rshift(value, 1))
         elseif last_bits == 7 then
             -- Set VX to VY minus VX. VY is set to 0 if there's a borrow, 1 otherwise
-            -- TODO: proper implementation
-            error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+            local value_x = self:get_register(register_x)
+            local value_y = self:get_register(register_y)
+            local value = value_y - value_x
+            self:set_register(0xf, 1)
+            if value < 0 then
+                self:set_register(0xf, 0)
+            end
+            self:set_register(register_x, value)
         elseif last_bits == 0xe then
             -- Shifts VX left by 1. VF is set to the most significant bit before the shift.
             local value = self:get_register(register_x)
@@ -340,15 +346,15 @@ function Cpu:run_instruction(opcode)
         end
     elseif leading_bits == 9 then
         -- Skip the next instruction if VX neq VY
-        -- TODO: proper implementation
-        error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+        if self:get_register(register_x) ~= self:get_register(register_y) then
+            self.program_counter = self.program_counter + 2
+        end
     elseif leading_bits == 0xa then
         -- Set I to NNN
         self.address_register = value_nnn
     elseif leading_bits == 0xb then
         -- Jump to the address NNN plus V0
-        -- TODO: proper implementation
-        error("Not implemented: 0x" .. bit.tohex(opcode, 4))
+        self.program_counter = value_nnn + self:get_register(0x0)
     elseif leading_bits == 0xc then
         -- Set VX to the bitwise and between a random number and NN
         local rnd = math.random(0x0, 0xff)
