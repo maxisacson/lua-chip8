@@ -358,7 +358,7 @@ function Cpu:run_instruction(opcode)
     elseif leading_bits == 0xc then
         -- Set VX to the bitwise and between a random number and NN
         local rnd = math.random(0x0, 0xff)
-        local value = bit.band(self:get_register(register_x, rnd))
+        local value = bit.band(self:get_register(register_x), rnd)
         self:set_register(register_x, value)
     elseif leading_bits == 0xd then
         -- Sprites stored in memory at location in index register (I), 8bits wide. Wraps around the screen.
